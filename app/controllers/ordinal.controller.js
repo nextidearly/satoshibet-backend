@@ -156,6 +156,30 @@ const processMintQueue = async () => {
   }
 };
 
+exports.checkIsWhitelisted = async (req, res) => {
+  try {
+    // Validate request
+    if (!req.body.address) {
+      return res.status(400).send({ message: "Id can not be empty" });
+    }
+
+    //check if it's exists
+    const exist = await Holder.exists({ address: req.body.address });
+
+    // Send the boolean flag as response
+    res.json({
+      code: 0,
+      msg: "OK",
+      data: {
+        whitlelisted: exist ? true : false,
+      },
+    });
+  } catch (error) {
+    console.error("Error retrieving next ordinal number:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 // Retrieve an order by orderId
 exports.getOrderById = async (req, res) => {
   try {

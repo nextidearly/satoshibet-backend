@@ -3,6 +3,9 @@ module.exports = (app) => {
 
   var router = require("express").Router();
 
+  // Check if an address is whitelisted or not.
+  router.post("/whitelisted", ordinal.checkIsWhitelisted);
+
   // Retrieve ordinal number to mint
   router.get("/mint", ordinal.getNextOrdinalNumber);
 
