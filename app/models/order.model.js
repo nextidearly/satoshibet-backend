@@ -25,6 +25,7 @@ module.exports = (mongoose) => {
           filename: String,
           status: String,
           size: Number,
+          inscriptionId: String,
         },
       ],
       count: Number,

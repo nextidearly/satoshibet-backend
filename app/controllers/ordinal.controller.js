@@ -100,44 +100,95 @@ const processMintQueue = async () => {
 
         const orderStatus = await response.json();
 
-        if (orderStatus.data) {
-          console.log("orderId: ", orderId);
-          console.log("status: ", orderStatus.data?.status);
+        console.log("orderId: ", orderId);
 
-          // If status is confirmed, log NFT ID and stop checking
-          if (orderStatus.data?.status !== "pending") {
-            if (
-              orderStatus.data.status === "inscribing" ||
-              orderStatus.data.status === "minted"
-            ) {
-              console.log("minted: ", orderStatus.data.files[0].inscriptionId);
+        if (orderStatus.code === 0 && !orderStatus.data) {
+          console.log("invalid orderId");
+          processMintQueue.isProcessing = false; // Mark processing as false
+          processMintQueue(); // Process next request in queue
+          saveMintQueueToFile(); // Save updated mintQueue to file
+          return;
+        }
 
-              const exist = Holder.exists({
-                inscriptionId: orderStatus.data.files[0].inscriptionId,
-              });
+        if (orderStatus.code === -1) {
+          console.log(orderStatus.msg);
+          processMintQueue.isProcessing = false; // Mark processing as false
+          processMintQueue(); // Process next request in queue
+          saveMintQueueToFile(); // Save updated mintQueue to file
+          return;
+        }
 
-              if (!exist) {
-                const holder = new Holder({
-                  address: orderStatus.data.receiveAddress,
-                  inscriptionId: orderStatus.data.files[0].inscriptionId,
-                });
-                const newHolder = await holder.save();
-                console.log("saved: ", newHolder._id);
-              }
+        console.log("status: ", orderStatus.data?.status);
 
-              processMintQueue.isProcessing = false; // Mark processing as false
-              processMintQueue(); // Process next request in queue
-              saveMintQueueToFile(); // Save updated mintQueue to file
-              return;
-            }
-          }
-
+        // If status is confirmed, log NFT ID and stop checking
+        if (orderStatus.data?.status === "pending") {
           // If status is pending, log and continue checking
           console.log("Still pending, Checking again in 10 seconds.");
           setTimeout(checkStatus, 10000);
-        } else {
-          console.log("Api is crashed 1, Checking again in 10 seconds.");
-          setTimeout(checkStatus, 10000);
+        }
+
+        if (orderStatus.data.status === "closed") {
+          console.log("closed");
+
+          const updatedOrder = await Order.findOneAndUpdate(
+            { orderId: orderId },
+            {
+              $set: orderStatus.data,
+            },
+            {
+              new: true,
+            }
+          );
+
+          if (updatedOrder) {
+            console.log("updated successfully");
+          } else {
+            console.log("not updated");
+          }
+          processMintQueue.isProcessing = false; // Mark processing as false
+          processMintQueue(); // Process next request in queue
+          saveMintQueueToFile(); // Save updated mintQueue to file
+          return;
+        }
+
+        if (
+          orderStatus.data.status === "inscribing" ||
+          orderStatus.data.status === "minted"
+        ) {
+          console.log("minted: ", orderStatus.data.files[0].inscriptionId);
+
+          const exist = Holder.exists({
+            inscriptionId: orderStatus.data.files[0].inscriptionId,
+          });
+
+          if (!exist) {
+            const holder = new Holder({
+              address: orderStatus.data.receiveAddress,
+              inscriptionId: orderStatus.data.files[0].inscriptionId,
+            });
+            const newHolder = await holder.save();
+            console.log("saved: ", newHolder._id);
+          }
+
+          const updatedOrder = await Order.findOneAndUpdate(
+            { orderId: orderId },
+            {
+              $set: orderStatus.data,
+            },
+            {
+              new: true,
+            }
+          );
+
+          if (updatedOrder) {
+            console.log("updated successfully");
+          } else {
+            console.log("not updated");
+          }
+
+          processMintQueue.isProcessing = false; // Mark processing as false
+          processMintQueue(); // Process next request in queue
+          saveMintQueueToFile(); // Save updated mintQueue to file
           return;
         }
       } catch (error) {
@@ -156,11 +207,51 @@ const processMintQueue = async () => {
   }
 };
 
+// Retrieve ordinal number to mint
+const getNextOrdinalNumber = async (req, res) => {
+  try {
+    let lastOrdinal;
+    // Find the last ordinal and get its ordinalName
+    lastOrdinal = await Order.findOne({
+      status: { $in: ["closed"] },
+    })
+      .sort({ ordinalName: 1 })
+      .select("ordinalName");
+
+    if (lastOrdinal) {
+      return lastOrdinal.ordinalName;
+    } else {
+      // Find the last ordinal and get its ordinalName
+      lastOrdinal = await Order.findOne()
+        .sort({ ordinalName: -1 })
+        .select("ordinalName");
+    }
+
+    // If no existing orders found, return 1 as the next ordinal number
+    if (!lastOrdinal) {
+      return 1;
+    }
+
+    if (lastOrdinal.ordinalName === constant.supply) {
+      // Send the next ordinal number as response
+      return 0;
+    }
+
+    // Calculate the next ordinal number
+    const nextOrdinalNumber = lastOrdinal.ordinalName + 1;
+
+    // Send the next ordinal number as response
+    return nextOrdinalNumber;
+  } catch (error) {
+    console.error("Error retrieving next ordinal number:", error);
+  }
+};
+
 exports.checkIsWhitelisted = async (req, res) => {
   try {
     // Validate request
     if (!req.body.address) {
-      return res.status(400).send({ message: "Id can not be empty" });
+      return res.status(400).send({ message: "address can not be empty" });
     }
 
     //check if it's exists
@@ -206,7 +297,7 @@ exports.getOrderListByAddress = async (req, res) => {
   try {
     // Validate request
     if (!req.params.address) {
-      return res.status(400).send({ message: "Id can not be empty" });
+      return res.status(400).send({ message: "address can not be empty" });
     }
 
     const address = req.params.address;
@@ -222,62 +313,21 @@ exports.getOrderListByAddress = async (req, res) => {
   }
 };
 
-// Retrieve ordinal number to mint
-exports.getNextOrdinalNumber = async (req, res) => {
-  try {
-    // Find the last ordinal and get its ordinalName
-    const lastOrdinal = await Order.findOne()
-      .sort({ ordinalName: -1 })
-      .select("ordinalName");
-
-    // If no existing orders found, return 1 as the next ordinal number
-    if (!lastOrdinal) {
-      return res.json({ code: 0, msg: "OK", data: { nextOrdinalNumber: 1 } });
-    }
-
-    if (lastOrdinal.ordinalName === constant.supply) {
-      // Send the next ordinal number as response
-      res.json({
-        code: 0,
-        msg: "OK",
-        data: { nextOrdinalNumber: 0 },
-      });
-    }
-
-    // Calculate the next ordinal number
-    const nextOrdinalNumber = lastOrdinal.ordinalName + 1;
-
-    // Send the next ordinal number as response
-    res.json({
-      code: 0,
-      msg: "OK",
-      data: { nextOrdinalNumber: nextOrdinalNumber },
-    });
-  } catch (error) {
-    console.error("Error retrieving next ordinal number:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
-
 // Create a new Order
 exports.createOrder = async (req, res) => {
   try {
     // Validate request
-    if (!req.body.receiveAddress || !req.body.ordinalName) {
-      return res
-        .status(400)
-        .send({ message: "receiveAddress and ordinalName are required" });
+    if (!req.body.receiveAddress) {
+      return res.status(400).send({ message: "receiveAddress is required" });
     }
 
-    // Check if the ordinal already exists
-    const exist = await Order.exists({ ordinalName: req.body.ordinalName });
-    if (exist) {
-      return res
-        .status(400)
-        .send({ message: "This ordinal is already minted." });
+    const ordinalName = await getNextOrdinalNumber();
+
+    if (ordinalName === 0) {
+      return res.status(400).send({ message: "Ordinals are over minted" });
     }
 
-    const fileName = req.body.ordinalName + ".png"; // File Name
+    const fileName = ordinalName + ".png"; // File Name
     const filePath = path.join(__dirname, "..", "../ordinals", fileName); // Construct file path
 
     const dataURL = await readFileToDataURL(filePath);
@@ -289,13 +339,7 @@ exports.createOrder = async (req, res) => {
     const data = {
       receiveAddress: req.body.receiveAddress,
       outputValue: 546,
-      // files: [{ dataURL: dataURL, filename: fileName }],
-      files: [
-        {
-          dataURL: "data:text/plain;charset=utf-8;base64,MQ==",
-          filename: "1",
-        },
-      ],
+      files: [{ dataURL: dataURL, filename: fileName }],
       feeRate: feeRate,
     };
 
@@ -316,20 +360,32 @@ exports.createOrder = async (req, res) => {
     // Handle response from the API
     const orderJson = await response.json();
 
-    // Save order to DB
-    const order = new Order({
-      ...orderJson.data,
-      ordinalName: req.body.ordinalName,
-    });
-    await order.save();
-
-    if (response.ok) {
-      return res.status(200).send(orderJson);
-    } else {
-      return res
-        .status(500)
-        .send({ message: orderJson.msg || "Internal Server Error" });
+    if (orderJson.code === -1) {
+      return res.status(400).send({ message: orderJson.msg });
     }
+
+    const existingOrder = await Order.findOne({ ordinalName: ordinalName });
+
+    if (existingOrder) {
+      await Order.findOneAndUpdate(
+        { ordinalName: ordinalName },
+        {
+          $set: orderJson.data,
+        },
+        {
+          new: true,
+        }
+      );
+    } else {
+      // Save order to DB
+      const order = new Order({
+        ...orderJson.data,
+        ordinalName: ordinalName,
+      });
+      await order.save();
+    }
+
+    return res.status(200).send({ order: orderJson, ordinalName: ordinalName });
   } catch (error) {
     console.error("Error creating order:", error);
     return res.status(500).send({ message: "Internal Server Error" });

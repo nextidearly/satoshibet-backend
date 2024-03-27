@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const express = require("express");
@@ -22,6 +23,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/ordinals", express.static(path.join(__dirname, "ordinals")));
 
 const db = require("./app/models");
+db.mongoose.set("strictQuery", false);
 db.mongoose
   .connect(db.url, {
     useNewUrlParser: true,
@@ -37,10 +39,11 @@ db.mongoose
 
 // simple route
 app.get("/", (req, res) => {
-  res.json({ message: "Welcome to bezkoder application." });
+  res.json({ message: "Welcome to satoshibet.fun application." });
 });
 
 require("./app/routes/ordinal.routes")(app);
+require("./app/routes/holder.routes")(app);
 
 // set port, listen for requests
 const PORT = process.env.PORT || 8080;

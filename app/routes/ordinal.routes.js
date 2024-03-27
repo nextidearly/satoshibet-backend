@@ -6,9 +6,6 @@ module.exports = (app) => {
   // Check if an address is whitelisted or not.
   router.post("/whitelisted", ordinal.checkIsWhitelisted);
 
-  // Retrieve ordinal number to mint
-  router.get("/mint", ordinal.getNextOrdinalNumber);
-
   // Retrieve an order by orderId
   router.get("/mint/order/:id", ordinal.getOrderById);
 
